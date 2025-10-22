@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SÃO PEDRO CAP - PIX Automático</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at top, #00ff99, #001a0f);
+      color: white;
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0; padding: 20px;
+      text-align: center;
+    }
+    .container { max-width: 900px; margin: auto; }
+    h1 { color: #00ff99; text-shadow: 0 0 10px #00ff99; }
+    .number {
+      width: 50px; height: 50px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      background: #fff; color: #001a0f;
+      font-weight: bold; font-size: 18px;
+      margin: 6px; cursor: pointer; transition: 0.2s;
+    }
+    .number.selected {
+      background: #00ff99;
+      color: black;
+      box-shadow: 0 0 10px #00ff99;
+      transform: scale(1.1);
+    }
+    button {
+      background: #00ff99; color: black;
+      font-weight: bold; padding: 12px 20px;
+      border: none; border-radius: 10px;
+      cursor: pointer; margin: 8px;
+      font-size: 16px;
+    }
+    button:disabled { background: gray; cursor: not-allowed; }
+    .card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 20px;
+      margin-top: 20px;
+      box-shadow: 0 0 15px rgba(0,255,153,0.3);
+    }
+    #qrcode { background: white; padding: 10px; border-radius: 10px; display: inline-block; }
+    .ticket { background: white; color: black; border-radius: 10px; padding: 20px; margin-top: 20px; }
+    .ticket-number {
+      width: 40px; height: 40px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #001a0f; color: #00ff99;
+      font-weight: bold; margin: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎯 SÃO PEDRO CAP</h1>
+    <p>Escolha <strong>6 números entre 1 e 20</strong> e aposte <strong>R$ 2,00</strong> via PIX automático.</p>
+
+    <div id="numbers-container"></div>
+    <div>
+      <button id="bet-btn" disabled>Gerar PIX (R$ 2,00)</button>
+      <button id="clear-btn">Limpar</button>
+      <button id="random-btn">Surpresinha</button>
+    </div>
+
+    <div class="card" id="pix-area" style="display:none;">
+      <h2>💸 Pague com PIX</h2>
+      <div id="qrcode"></div>
+      <p id="pix-code" style="word-break:break-all;background:white;color:black;padding:10px;border-radius:8px;"></p>
+      <p id="status">Aguardando pagamento...</p>
+    </div>
+
+    <div class="ticket" id="ticket" style="display:none;">
+      <h3>🎫 Bilhete Confirmado - SÃO PEDRO CAP</h3>
+      <p><strong>Código:</strong> <span id="ticket-code"></span></p>
+      <p><strong>Data:</strong> <span id="ticket-date"></span></p>
+      <p><strong>Valor:</strong> R$ <span id="ticket-value">2,00</span></p>
+      <div id="ticket-numbers"></div>
+      <button id="download-btn">Baixar PDF</button>
+    </div>
+  </div>
+
+  <script>
+    const ACCESS_TOKEN = "APP_USR-5763051175665115-102112-a7b6a29d4c87f1d1f254b999401581fa-2265178340";
+    const WHATSAPP = "5519978213042";
+    let selectedNumbers = [];
+    let paymentId = null;
+
+    const numbersContainer = document.getElementById("numbers-container");
+    const betBtn = document.getElementById("bet-btn");
+    const clearBtn = document.getElementById("clear-btn");
+    const randomBtn = document.getElementById("random-btn");
+    const pixArea = document.getElementById("pix-area");
+    const qrDiv = document.getElementById("qrcode");
+    const pixCode = document.getElementById("pix-code");
+    const statusEl = document.getElementById("status");
+    const ticket = document.getElementById("ticket");
+    const ticketCode = document.getElementById("ticket-code");
+    const ticketDate = document.getElementById("ticket-date");
+    const ticketValue = document.getElementById("ticket-value");
+    const ticketNumbers = document.getElementById("ticket-numbers");
+    const downloadBtn = document.getElementById("download-btn");
+
+    for (let i = 1; i <= 20; i++) {
+      const el = document.createElement("div");
+      el.className = "number";
+      el.textContent = i;
+      el.onclick = () => toggleNumber(i);
+      numbersContainer.appendChild(el);
+    }
+
+    function toggleNumber(num) {
+      if (selectedNumbers.includes(num)) {
+        selectedNumbers = selectedNumbers.filter(n => n !== num);
+      } else if (selectedNumbers.length < 6) {
+        selectedNumbers.push(num);
+      }
+      updateDisplay();
+    }
+
+    function updateDisplay() {
+      document.querySelectorAll(".number").forEach(el => {
+        const n = parseInt(el.textContent);
+        el.classList.toggle("selected", selectedNumbers.includes(n));
+      });
+      betBtn.disabled = selectedNumbers.length !== 6;
+    }
+
+    clearBtn.onclick = () => { selectedNumbers = []; updateDisplay(); };
+    randomBtn.onclick = () => {
+      selectedNumbers = [];
+      const pool = Array.from({ length: 20 }, (_, i) => i + 1);
+      for (let i = 0; i < 6; i++) selectedNumbers.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+      updateDisplay();
+    };
+
+    betBtn.onclick = async () => {
+      if (selectedNumbers.length !== 6) return alert("Escolha 6 números!");
+      const code = genCode();
+      ticket.style.display = "none";
+      pixArea.style.display = "block";
+      statusEl.textContent = "Gerando PIX...";
+
+      try {
+        const res = await fetch("https://api.mercadopago.com/v1/payments", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + ACCESS_TOKEN, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transaction_amount: 2.00,
+            description: "Aposta SÃO PEDRO CAP",
+            payment_method_id: "pix",
+            payer: { email: "apostador@spcap.com", first_name: "Apostador", last_name: "SPCAP" }
+          })
+        });
+        const data = await res.json();
+        paymentId = data.id;
+        const qr = data.point_of_interaction.transaction_data.qr_code;
+        QRCode.toCanvas(qrDiv, qr);
+        pixCode.textContent = qr;
+        statusEl.textContent = "Aguardando pagamento...";
+        checkPayment(code);
+      } catch (e) {
+        alert("Erro ao criar PIX. Tente novamente.");
+      }
+    };
+
+    function genCode() {
+      const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      return Array.from({ length: 10 }, () => c[Math.floor(Math.random() * c.length)]).join("");
+    }
+
+    async function checkPayment(code) {
+      const interval = setInterval(async () => {
+        const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+          headers: { "Authorization": "Bearer " + ACCESS_TOKEN }
+        });
+        const data = await res.json();
+        if (data.status === "approved") {
+          clearInterval(interval);
+          statusEl.textContent = "Pagamento aprovado ✅";
+          gerarBilhete(code);
+        }
+      }, 4000);
+    }
+
+    function gerarBilhete(code) {
+      const date = new Date().toLocaleString("pt-BR");
+      ticketCode.textContent = code;
+      ticketDate.textContent = date;
+      ticketNumbers.innerHTML = "";
+      selectedNumbers.forEach(n => {
+        const el = document.createElement("div");
+        el.className = "ticket-number";
+        el.textContent = n;
+        ticketNumbers.appendChild(el);
+      });
+      pixArea.style.display = "none";
+      ticket.style.display = "block";
+      enviarWhatsApp(code);
+    }
+
+    function enviarWhatsApp(code) {
+      const msg = `🎫 *SÃO PEDRO CAP*%0A%0ABilhete confirmado!%0A%0ACódigo: ${code}%0AValor: R$2,00%0ANúmeros: ${selectedNumbers.join(", ")}%0A%0ABoa sorte! 🍀`;
+      window.open(`https://wa.me/${WHATSAPP}?text=${msg}`, "_blank");
+    }
+
+    downloadBtn.onclick = () => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text("BILHETE - SÃO PEDRO CAP", 20, 20);
+      doc.text(`Código: ${ticketCode.textContent}`, 20, 30);
+      doc.text(`Data: ${ticketDate.textContent}`, 20, 40);
+      doc.text(`Valor: R$ ${ticketValue.textContent}`, 20, 50);
+      doc.text(`Números: ${selectedNumbers.join(", ")}`, 20, 60);
+      doc.save(`bilhete_${ticketCode.textContent}.pdf`);
+    };
+  </script>
+</body>
+</html>
